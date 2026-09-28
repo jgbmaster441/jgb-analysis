@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JGB Analysis Code</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#dedcd6; --accent:#1f5fae; --code:#fbfbfa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1a1a19; --fg:#e8e7e3; --muted:#9a9993; --card:#232322; --line:#3a3a37; --accent:#7fb0ef; --code:#1e1e1d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .tabs button { border:1px solid var(--line); background:var(--card); color:var(--fg); padding:6px 12px; border-radius:6px; cursor:pointer; font:inherit; font-size:13px; }
+  .tabs button.on { border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .bar .name { font-family: ui-monospace, Consolas, monospace; font-size:14px; }
+  .bar .meta { color:var(--muted); font-size:12px; }
+  .copy { background:var(--accent); color:#fff; border:0; padding:8px 16px; border-radius:6px; cursor:pointer; font:inherit; font-size:14px; font-weight:600; white-space:nowrap; }
+  @media (prefers-color-scheme: dark) { .copy { color:#111; } }
+  pre { margin:0; padding:14px; background:var(--code); overflow:auto; max-height:75vh; font: 12.5px/1.5 ui-monospace, Consolas, "MS Gothic", monospace; tab-size:4; }
+  .msg { padding:14px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>JGB Analysis Code</h1>
+  <p class="sub">「全文コピー」を押して Jupyter のセルに貼り付けてください。</p>
+  <div class="tabs" id="tabs"></div>
+  <div class="card">
+    <div class="bar">
+      <div><div class="name" id="name"></div><div class="meta" id="meta"></div></div>
+      <button class="copy" id="copy">全文コピー</button>
+    </div>
+    <pre id="code"><span class="msg">読み込み中…</span></pre>
+  </div>
+</main>
+<script>
+  // 表示するファイル一覧（ファイルを追加したらここに1行足す）
+  const FILES = [
+    { file: 'jgb_base.py', label: '1. 土台コード（固定年限・ASW）' },
+  ];
+
+  let current = '';
+  const $ = id => document.getElementById(id);
+
+  async function load(i) {
+    const f = FILES[i];
+    document.querySelectorAll('.tabs button').forEach((b, j) => b.classList.toggle('on', j === i));
+    $('name').textContent = f.file;
+    $('meta').textContent = '';
+    $('code').textContent = '読み込み中…';
+    try {
+      const r = await fetch(f.file + '?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status);
+      current = await r.text();
+      $('code').textContent = current;
+      $('meta').textContent = current.split('\n').length + ' 行';
+    } catch (e) {
+      current = '';
+      $('code').textContent = 'ファイルを読み込めませんでした (' + e.message + ')';
+    }
+  }
+
+  FILES.forEach((f, i) => {
+    const b = document.createElement('button');
+    b.textContent = f.label;
+    b.onclick = () => load(i);
+    $('tabs').appendChild(b);
+  });
+
+  $('copy').onclick = async () => {
+    if (!current) return;
+    let ok = false;
+    try { await navigator.clipboard.writeText(current); ok = true; } catch (e) {}
+    if (!ok) {  // クリップボードAPIが使えない環境向け
+      const ta = document.createElement('textarea');
+      ta.value = current; document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove();
+    }
+    const b = $('copy');
+    b.textContent = ok ? 'コピーしました' : 'コピー失敗：コードを選択してCtrl+C';
+    setTimeout(() => b.textContent = '全文コピー', 2000);
+  };
+
+  load(0);
+</script>
+</body>
+</html>
