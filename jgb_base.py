@@ -12,6 +12,7 @@
 #      （マスタに償還済み銘柄がないため、過去の1y/2y等が長い銘柄で代用されていた問題への対処）
 #   3. 各日にどの銘柄を使ったかを記録（銘柄入れ替えによるジャンプを確認できるように）
 #   4. 最後に df_jgb_current / df_asw_current を上書きするので、既存のプロットセルはそのまま使える
+#   5. 同じ償還日の銘柄が複数あるときは発行日が新しい銘柄を優先（発行日からカレント扱い）
 # =============================================================================
 
 # %% [0] 設定
@@ -87,20 +88,31 @@ ttm = pd.DataFrame(days_left / np.timedelta64(1, 'D') / 365.25,
 
 
 # %% [4] 固定年限：各日で目標年限に最も近い銘柄を選ぶ
-def select_bonds(yld, ttm, tenor_list, tol_min=TOL_MIN, tol_ratio=TOL_RATIO):
-    """各日・各年限で使う銘柄(ticker)と、その残存年数を返す。許容ずれを超えたら NaN。"""
+def select_bonds(yld, ttm, tenor_list, issue=None, tol_min=TOL_MIN, tol_ratio=TOL_RATIO):
+    """各日・各年限で使う銘柄(ticker)と、その残存年数を返す。許容ずれを超えたら NaN。
+    - 発行日より前の日は候補外（issue を渡した場合）
+    - 償還日が同じ銘柄が複数あるときは、発行日が新しい銘柄を優先
+      （例：JS186 と JS187 が同じ償還日 → JS187 の発行日から JS187 をカレントにする）
+    """
     tickers, ttm_used = {}, {}
     rows = np.arange(len(yld))
     for tenor, code in tenor_list:
         target = float(tenor.replace('y', ''))
-        cols = np.array([c for c in yld.columns if c.startswith(code)])
+        cols = [c for c in yld.columns if c.startswith(code)]
         if len(cols) == 0:
             tickers[tenor] = [None] * len(yld)
             ttm_used[tenor] = np.nan
             continue
+        if issue is not None:
+            # 発行日の新しい順に並べる → 同じ距離なら先頭（＝新しい銘柄）が argmin で選ばれる
+            cols = sorted(cols, key=lambda c: issue[c], reverse=True)
+        cols = np.array(cols)
         t = ttm[cols].to_numpy()
         gap = np.abs(t - target)
         gap[np.isnan(yld[cols].to_numpy())] = np.inf   # 利回りがない日は候補外
+        if issue is not None:
+            iss = issue[cols].to_numpy(dtype='datetime64[ns]')
+            gap[yld.index.values[:, None] < iss[None, :]] = np.inf   # 発行日前は候補外
         idx = gap.argmin(axis=1)
         best_gap = gap[rows, idx]
         ok = best_gap <= max(tol_min, tol_ratio * target)
@@ -125,7 +137,7 @@ def pick(values, tickers):
     return pd.DataFrame(out, index=values.index)
 
 
-cm_ticker, cm_ttm = select_bonds(yld, ttm, TENOR_CODE_LIST)
+cm_ticker, cm_ttm = select_bonds(yld, ttm, TENOR_CODE_LIST, issue=bond['issue'])
 jgb_cm = pick(yld, cm_ticker)        # 固定年限 利回り (bp)
 asw_cm = pick(bond_asw, cm_ticker)   # 固定年限 ASW (bp)　※利回りと同じ銘柄を使用
 
